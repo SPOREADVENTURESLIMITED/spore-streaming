@@ -1,0 +1,12 @@
+{
+  "id": "/",
+  "name": "SPORE MAX",
+  "short_name": "SPORE MAX",
+  "description": "One Platform. Unlimited Entertainment.",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "background_color": "#101018",
+  "theme_color": "#101018",
+  "icons": []
+}
