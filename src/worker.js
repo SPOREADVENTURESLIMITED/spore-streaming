@@ -45,7 +45,7 @@ async function currentUser(request, env) {
   if (!token) return null;
   const tokenHash = await digest(token);
   const row = await env.DB.prepare(
-    "SELECT u.id, u.email, u.display_name, u.role FROM sessions s JOIN users u ON u.id=s.user_id WHERE s.token_hash=? AND s.expires_at > datetime('now') AND u.status='active'"
+    "SELECT u.id, u.email, u.display_name, u.role FROM sessions s JOIN users u ON u.id=s.user_id WHERE s.token_hash=? AND julianday(s.expires_at) > julianday('now') AND u.status='active'"
   ).bind(tokenHash).first();
   return row || null;
 }
