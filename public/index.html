@@ -1,0 +1,35 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#101018">
+  <meta name="description" content="SPORE MAX — One Platform. Unlimited Entertainment.">
+  <link rel="manifest" href="/manifest.webmanifest">
+  <link rel="stylesheet" href="/styles.css">
+  <title>SPORE MAX</title>
+</head>
+<body>
+  <header class="topbar">
+    <a class="brand" href="/" aria-label="SPORE MAX home">SPORE <span>MAX</span></a>
+    <nav aria-label="Main navigation">
+      <a href="#movies">Movies</a><a href="#series">Series</a><a href="#live">Live TV</a><a href="#music">Music</a>
+    </nav>
+    <button id="installButton" class="install" hidden>Install app</button>
+  </header>
+  <main>
+    <section class="hero">
+      <p class="eyebrow">WELCOME TO SPORE MAX</p>
+      <h1>One Platform.<br><span>Unlimited Entertainment.</span></h1>
+      <p>Movies, series, live experiences and music — all in one place.</p>
+      <a class="primary" href="#browse">Explore entertainment</a>
+    </section>
+    <section id="browse" class="catalogue">
+      <div class="section-heading"><div><p class="eyebrow">DISCOVER</p><h2>Explore SPORE MAX</h2></div></div>
+      <div id="catalogue" class="grid" aria-live="polite"><p>Loading available titles…</p></div>
+    </section>
+  </main>
+  <footer><strong>SPORE MAX</strong><span>One Platform. Unlimited Entertainment.</span></footer>
+  <script type="module" src="/app.js"></script>
+</body>
+</html>
