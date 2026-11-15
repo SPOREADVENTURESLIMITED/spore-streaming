@@ -15,7 +15,7 @@
     <nav aria-label="Main navigation">
       <a href="#movies">Movies</a><a href="#series">Series</a><a href="#live">Live TV</a><a href="#music">Music</a>
     </nav>
-    <button id="installButton" class="install" hidden>Install app</button>
+    <div class="account-actions"><button id="accountButton" class="install">Sign in</button><button id="installButton" class="install" hidden>Install app</button></div>
   </header>
   <main>
     <section class="hero">
@@ -29,6 +29,7 @@
       <div id="catalogue" class="grid" aria-live="polite"><p>Loading available titles…</p></div>
     </section>
   </main>
+  <dialog id="authDialog" class="auth-dialog"><form id="authForm" class="auth-form"><button type="button" id="closeAuth" class="close-auth" aria-label="Close">×</button><p class="eyebrow">YOUR SPORE MAX ACCOUNT</p><h2 id="authTitle">Sign in</h2><label id="nameField" hidden>Display name<input name="display_name" minlength="2" maxlength="80" autocomplete="name"></label><label>Email address<input name="email" type="email" required maxlength="254" autocomplete="email"></label><label>Password<input name="password" type="password" required minlength="12" maxlength="128" autocomplete="current-password"></label><p id="authMessage" role="status"></p><button class="primary" id="authSubmit" type="submit">Sign in</button><button type="button" id="authSwitch" class="text-button">Create an account</button></form></dialog>
   <footer><strong>SPORE MAX</strong><span>One Platform. Unlimited Entertainment.</span></footer>
   <script type="module" src="/app.js"></script>
 </body>
