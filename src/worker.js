@@ -58,6 +58,11 @@ async function createSession(userId, env) {
   return token;
 }
 async function handleAuth(request, env, path) {
+  if (request.method !== "GET" && request.method !== "HEAD") {
+    const origin = request.headers.get("Origin");
+    if (origin && origin !== new URL(request.url).origin) return json({ error: "Invalid request origin." }, 403);
+    if (!origin && request.headers.get("Sec-Fetch-Site") === "cross-site") return json({ error: "Cross-site request blocked." }, 403);
+  }
   if (!env.DB) return json({ error: "Database is not configured." }, 503);
   if (request.method === "GET" && path === "/api/auth/me") {
     const user = await currentUser(request, env);
@@ -132,9 +137,9 @@ async function handleAuth(request, env, path) {
     }
     user = { id: row.id, email: row.email, display_name: row.display_name, role: row.role };
     if (user.role === "admin" && await mfaEnabled(user.id,env)) {
-      let verified = await verifyTotp(await decryptMfaSecret(
-        (await env.DB.prepare("SELECT secret_ciphertext FROM admin_mfa WHERE user_id=? AND enabled=1").bind(user.id).first()).secret_ciphertext,env
-      ),body.totp_code);
+      const mfaRow = await env.DB.prepare("SELECT secret_ciphertext FROM admin_mfa WHERE user_id=? AND enabled=1").bind(user.id).first();
+      if (!mfaRow?.secret_ciphertext) return json({ error: "Administrator MFA configuration needs recovery. Contact the system operator." }, 503);
+      let verified = await verifyTotp(await decryptMfaSecret(mfaRow.secret_ciphertext,env),body.totp_code);
       if (!verified && body.recovery_code) verified = await verifyRecoveryCode(user.id,body.recovery_code,env);
       if (!verified) return json({ error: "Administrator verification code required or invalid.", mfa_required: true }, 401);
     }
@@ -241,11 +246,13 @@ async function adminRoute(request, env, url) {
   const admin = await currentUser(request, env);
   if (!admin) return json({ error: "Sign in required." }, 401);
   if (admin.role !== "admin") return json({ error: "Administrator access required." }, 403);
+  if (request.method !== "GET" && request.method !== "HEAD") {
+    const origin = request.headers.get("Origin");
+    if (origin && origin !== url.origin) return json({ error: "Invalid request origin." }, 403);
+    if (!origin && request.headers.get("Sec-Fetch-Site") === "cross-site") return json({ error: "Cross-site request blocked." }, 403);
+  }
   if (url.pathname.startsWith("/api/admin/mfa/")) return adminMfaRoute(request,env,url,admin);
   if (!(await mfaEnabled(admin.id,env))) return json({ error: "Administrator MFA setup is required." }, 403);
-  if (request.method !== "GET" && request.headers.get("Origin") !== url.origin) {
-    return json({ error: "Invalid request origin." }, 403);
-  }
   const audit = async (action, type, id, details = null) => {
     await env.DB.prepare("INSERT INTO admin_audit_logs (id,admin_user_id,action,target_type,target_id,details) VALUES (?,?,?,?,?,?)")
       .bind(crypto.randomUUID(), admin.id, action, type, id, details ? JSON.stringify(details) : null).run();
