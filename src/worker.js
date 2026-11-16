@@ -78,7 +78,7 @@ async function handleAuth(request, env, path) {
       const tokenHash=await digest(token);
       const expires=new Date(Date.now()+30*60*1000).toISOString();
       await env.DB.prepare("INSERT INTO password_resets(id,user_id,token_hash,expires_at) VALUES(?,?,?,?)").bind(crypto.randomUUID(),user.id,tokenHash,expires).run();
-      const resetUrl=env.APP_ORIGIN.replace(/$/,"")+"/?reset_token="+encodeURIComponent(token);
+      const resetUrl=env.APP_ORIGIN.replace(/\/$/,"")+"/?reset_token="+encodeURIComponent(token);
       await fetch("https://api.resend.com/emails",{method:"POST",headers:{"Authorization":"Bearer "+env.RESEND_API_KEY,"Content-Type":"application/json"},body:JSON.stringify({from:env.RESET_EMAIL_FROM,to:[user.email],subject:"Reset your SPORE MAX password",html:"<p>We received a password reset request for your SPORE MAX account.</p><p><a href='"+resetUrl+"'>Reset password</a></p><p>This link expires in 30 minutes. If you did not request this, ignore this email.</p>"})});
     }
     return json({message:"If an active account matches that address, reset instructions will be sent."});
