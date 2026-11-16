@@ -19,4 +19,4 @@ bucket_name = "spore-max-media"
 
 [vars]
 APP_NAME = "SPORE MAX"
-APP_ORIGIN = "https://REPLACE_WITH_YOUR_DOMAIN"
+APP_ORIGIN = "https://spore-max.spore-cybernetics.workers.dev"
