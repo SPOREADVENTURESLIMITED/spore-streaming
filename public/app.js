@@ -262,6 +262,28 @@ document.querySelector("#titleForm").addEventListener("submit",async event=>{
   if(response.ok){form.reset();await showAdmin();}
 });
 
+
+document.querySelector("#forgotPassword").addEventListener("click",async()=>{
+  const email=authForm.elements.email.value.trim() || window.prompt("Enter the email address on your SPORE MAX account:");
+  if(!email) return;
+  const response=await fetch("/api/auth/forgot-password",{method:"POST",headers:{"content-type":"application/json"},body:JSON.stringify({email})});
+  const data=await response.json();
+  authMessage.textContent=data.message || "If the account exists, reset instructions will be sent.";
+});
+(async()=>{
+  const params=new URLSearchParams(location.search);
+  const token=params.get("reset_token");
+  if(!token) return;
+  const password=window.prompt("Enter your new password (at least 12 characters):");
+  if(!password) return;
+  const response=await fetch("/api/auth/reset-password",{method:"POST",headers:{"content-type":"application/json"},body:JSON.stringify({token,password})});
+  const data=await response.json();
+  window.alert(data.message || data.error || "Password reset request completed.");
+  history.replaceState(null,"",location.pathname);
+  if(!response.ok) return;
+  setAuthMode(false); dialog.showModal();
+})();
+
 let installPrompt;
 const installButton = document.querySelector("#installButton");
 window.addEventListener("beforeinstallprompt", event => {
