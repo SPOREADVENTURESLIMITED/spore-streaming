@@ -86,7 +86,7 @@ authForm.addEventListener("submit", async event => {
     authSubmit.hidden = true;
     authSwitch.textContent = "Sign out";
     nameField.hidden = true;
-    authForm.elements.password.value = "";\n    await showDashboard();
+    authForm.elements.password.value = "";\n    dialog.close();\n    await showDashboard();
   } catch (error) {
     authMessage.textContent = error.message;
   } finally {
