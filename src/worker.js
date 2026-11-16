@@ -101,6 +101,13 @@ async function handleAuth(request, env, path) {
       return json({ error: "Email or password is incorrect." }, 401);
     }
     user = { id: row.id, email: row.email, display_name: row.display_name, role: row.role };
+    if (user.role === "admin" && await mfaEnabled(user.id,env)) {
+      let verified = await verifyTotp(await decryptMfaSecret(
+        (await env.DB.prepare("SELECT secret_ciphertext FROM admin_mfa WHERE user_id=? AND enabled=1").bind(user.id).first()).secret_ciphertext,env
+      ),body.totp_code);
+      if (!verified && body.recovery_code) verified = await verifyRecoveryCode(user.id,body.recovery_code,env);
+      if (!verified) return json({ error: "Administrator verification code required or invalid.", mfa_required: true }, 401);
+    }
   }
   const token = await createSession(user.id, env);
   return json({ user }, 200, { "set-cookie": sessionCookie(token) });
