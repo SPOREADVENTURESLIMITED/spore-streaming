@@ -47,12 +47,8 @@ accountButton.addEventListener("click", async () => {
   const response = await fetch("/api/auth/me");
   const data = await response.json();
   if (data.user) {
-    authTitle.textContent = "Welcome, " + data.user.display_name;
-    authMessage.textContent = data.user.email + " · " + data.user.role;
-    authSubmit.hidden = true;
-    authSwitch.textContent = "Sign out";
-    nameField.hidden = true;
-    dialog.showModal();
+    accountButton.textContent = data.user.display_name;
+    await showDashboard();
     return;
   }
   authSubmit.hidden = false;
@@ -62,7 +58,7 @@ accountButton.addEventListener("click", async () => {
 document.querySelector("#closeAuth").addEventListener("click", () => dialog.close());
 authSwitch.addEventListener("click", async () => {
   if (authSubmit.hidden) {
-    await fetch("/api/auth/logout", { method: "POST" });
+    await fetch("/api/auth/logout", { method: "POST" });\n    document.querySelector("#customerDashboard").hidden = true;
     authSubmit.hidden = false;
     accountButton.textContent = "Sign in";
     dialog.close();
@@ -90,14 +86,48 @@ authForm.addEventListener("submit", async event => {
     authSubmit.hidden = true;
     authSwitch.textContent = "Sign out";
     nameField.hidden = true;
-    authForm.elements.password.value = "";
+    authForm.elements.password.value = "";\n    await showDashboard();
   } catch (error) {
     authMessage.textContent = error.message;
   } finally {
     authSubmit.disabled = false;
   }
 });
-let installPrompt;
+
+const dashboard = document.querySelector("#customerDashboard");
+function renderRows(target, items, emptyText) {
+  target.replaceChildren();
+  if (!items.length) { target.textContent = emptyText; return; }
+  for (const item of items) {
+    const row = document.createElement("div");
+    row.className = "dashboard-row";
+    const name = document.createElement("strong");
+    name.textContent = item.title;
+    const detail = document.createElement("small");
+    detail.textContent = item.media_type + (item.progress_seconds != null ? " · " + item.progress_seconds + " sec watched" : "");
+    row.append(name, detail);
+    target.append(row);
+  }
+}
+async function showDashboard() {
+  const response = await fetch("/api/account/dashboard");
+  if (response.status === 401) { dashboard.hidden = true; return; }
+  if (!response.ok) throw new Error("Dashboard could not be loaded.");
+  const data = await response.json();
+  const summary = document.querySelector("#dashboardSummary");
+  summary.replaceChildren();
+  const welcome = document.createElement("p");
+  welcome.textContent = data.user.display_name + " · " + data.user.email;
+  const plan = document.createElement("p");
+  plan.textContent = data.subscription ? "Subscription: " + data.subscription.plan_code + " (" + data.subscription.status + ")" : "Plan: Free";
+  summary.append(welcome, plan);
+  renderRows(document.querySelector("#watchlistItems"), data.watchlist, "Your watchlist is empty.");
+  renderRows(document.querySelector("#historyItems"), data.history, "No viewing history yet.");
+  dashboard.hidden = false;
+  dashboard.scrollIntoView({ behavior: "smooth", block: "start" });
+}
+document.querySelector("#refreshDashboard").addEventListener("click", () => showDashboard().catch(() => {}));
+\nlet installPrompt;
 const installButton = document.querySelector("#installButton");
 window.addEventListener("beforeinstallprompt", event => {
   event.preventDefault();
