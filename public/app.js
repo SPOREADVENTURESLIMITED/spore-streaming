@@ -134,6 +134,12 @@ async function showDashboard() {
   dashboard.scrollIntoView({ behavior: "smooth", block: "start" });
 }
 document.querySelector("#refreshDashboard").addEventListener("click", () => showDashboard().catch(() => {}));
+document.querySelector("#customerLogout").addEventListener("click", async () => {
+  await fetch("/api/auth/logout", { method: "POST" });
+  dashboard.hidden = true;
+  adminPanel.hidden = true;
+  accountButton.textContent = "Sign in";
+});
 
 
 const adminPanel = document.querySelector("#adminDashboard");
