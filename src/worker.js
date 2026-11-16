@@ -352,6 +352,11 @@ export default {
       if (!env.DB) return json({ error: "Database is not configured." }, 503);
       const user = await currentUser(request, env);
       if (!user) return json({ error: "Sign in required." }, 401);
+      if (request.method !== "GET" && request.method !== "HEAD") {
+        const origin = request.headers.get("Origin");
+        if (origin && origin !== url.origin) return json({ error: "Invalid request origin." }, 403);
+        if (!origin && request.headers.get("Sec-Fetch-Site") === "cross-site") return json({ error: "Cross-site request blocked." }, 403);
+      }
       try {
         if (request.method === "GET" && url.pathname === "/api/account/dashboard") {
           const [subscription, watchlist, history] = await Promise.all([
