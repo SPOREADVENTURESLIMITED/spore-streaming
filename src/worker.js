@@ -113,6 +113,49 @@ export default {
       try { return await handleAuth(request, env, url.pathname); }
       catch { return json({ error: "Authentication service is temporarily unavailable." }, 500); }
     }
+    if (url.pathname.startsWith("/api/account/")) {
+      if (!env.DB) return json({ error: "Database is not configured." }, 503);
+      const user = await currentUser(request, env);
+      if (!user) return json({ error: "Sign in required." }, 401);
+      try {
+        if (request.method === "GET" && url.pathname === "/api/account/dashboard") {
+          const [subscription, watchlist, history] = await Promise.all([
+            env.DB.prepare("SELECT plan_code,status,starts_at,ends_at FROM subscriptions WHERE user_id=? AND status='active' AND (ends_at IS NULL OR julianday(ends_at)>julianday('now')) ORDER BY created_at DESC LIMIT 1").bind(user.id).first(),
+            env.DB.prepare("SELECT t.id,t.title,t.media_type,t.access_tier,w.created_at FROM watchlist w JOIN titles t ON t.id=w.title_id WHERE w.user_id=? ORDER BY w.created_at DESC LIMIT 50").bind(user.id).all(),
+            env.DB.prepare("SELECT t.id,t.title,t.media_type,h.progress_seconds,h.updated_at FROM watch_history h JOIN titles t ON t.id=h.title_id WHERE h.user_id=? ORDER BY h.updated_at DESC LIMIT 20").bind(user.id).all()
+          ]);
+          return json({ user, subscription: subscription || null, watchlist: watchlist.results || [], history: history.results || [] });
+        }
+        if (request.method === "POST" && url.pathname === "/api/account/watchlist") {
+          const body = await request.json();
+          const titleId = String(body.title_id || "");
+          if (!titleId || titleId.length > 80) return json({ error: "A valid title_id is required." }, 400);
+          const title = await env.DB.prepare("SELECT id FROM titles WHERE id=? AND status='published'").bind(titleId).first();
+          if (!title) return json({ error: "Title not found." }, 404);
+          await env.DB.prepare("INSERT OR IGNORE INTO watchlist (user_id,title_id) VALUES (?,?)").bind(user.id,titleId).run();
+          return json({ ok: true });
+        }
+        if (request.method === "DELETE" && url.pathname === "/api/account/watchlist") {
+          const titleId = url.searchParams.get("title_id") || "";
+          if (!titleId) return json({ error: "title_id is required." }, 400);
+          await env.DB.prepare("DELETE FROM watchlist WHERE user_id=? AND title_id=?").bind(user.id,titleId).run();
+          return json({ ok: true });
+        }
+        if (request.method === "POST" && url.pathname === "/api/account/history") {
+          const body = await request.json();
+          const titleId = String(body.title_id || "");
+          const progress = Number(body.progress_seconds);
+          if (!titleId || !Number.isInteger(progress) || progress < 0 || progress > 86400) return json({ error: "Invalid viewing progress." }, 400);
+          const title = await env.DB.prepare("SELECT id FROM titles WHERE id=? AND status='published'").bind(titleId).first();
+          if (!title) return json({ error: "Title not found." }, 404);
+          await env.DB.prepare("INSERT INTO watch_history (user_id,title_id,progress_seconds,updated_at) VALUES (?,?,?,CURRENT_TIMESTAMP) ON CONFLICT(user_id,title_id) DO UPDATE SET progress_seconds=excluded.progress_seconds,updated_at=CURRENT_TIMESTAMP").bind(user.id,titleId,progress).run();
+          return json({ ok: true });
+        }
+      } catch {
+        return json({ error: "Account service is temporarily unavailable." }, 500);
+      }
+      return json({ error: "Not found." }, 404);
+    }
     if (request.method === "GET" && url.pathname === "/api/health") {
       return json({ ok: true, app: env.APP_NAME || "SPORE MAX", service: "api" });
     }
