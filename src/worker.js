@@ -106,6 +106,102 @@ async function handleAuth(request, env, path) {
   return json({ user }, 200, { "set-cookie": sessionCookie(token) });
 }
 
+
+async function adminRoute(request, env, url) {
+  if (!env.DB) return json({ error: "Database is not configured." }, 503);
+  const admin = await currentUser(request, env);
+  if (!admin) return json({ error: "Sign in required." }, 401);
+  if (admin.role !== "admin") return json({ error: "Administrator access required." }, 403);
+  if (request.method !== "GET" && request.headers.get("Origin") !== url.origin) {
+    return json({ error: "Invalid request origin." }, 403);
+  }
+  const audit = async (action, type, id, details = null) => {
+    await env.DB.prepare("INSERT INTO admin_audit_logs (id,admin_user_id,action,target_type,target_id,details) VALUES (?,?,?,?,?,?)")
+      .bind(crypto.randomUUID(), admin.id, action, type, id, details ? JSON.stringify(details) : null).run();
+  };
+  try {
+    if (request.method === "GET" && url.pathname === "/api/admin/dashboard") {
+      const [users, titles, published, drafts, recent] = await Promise.all([
+        env.DB.prepare("SELECT COUNT(*) AS count FROM users").first(),
+        env.DB.prepare("SELECT COUNT(*) AS count FROM titles").first(),
+        env.DB.prepare("SELECT COUNT(*) AS count FROM titles WHERE status='published'").first(),
+        env.DB.prepare("SELECT COUNT(*) AS count FROM titles WHERE status='draft'").first(),
+        env.DB.prepare("SELECT id,title,media_type,access_tier,status,created_at FROM titles ORDER BY created_at DESC LIMIT 100").all()
+      ]);
+      return json({ admin: { id: admin.id, email: admin.email, display_name: admin.display_name }, stats: { users: users.count, titles: titles.count, published: published.count, drafts: drafts.count }, titles: recent.results || [] });
+    }
+    if (request.method === "POST" && url.pathname === "/api/admin/titles") {
+      const body = await request.json();
+      const title = String(body.title || "").trim();
+      const description = String(body.description || "").trim();
+      const mediaType = String(body.media_type || "");
+      const tier = String(body.access_tier || "free");
+      if (title.length < 1 || title.length > 180 || description.length > 5000 ||
+          !["movie","series","live","music"].includes(mediaType) || !["free","premium"].includes(tier)) {
+        return json({ error: "Check the title, description, content type and access tier." }, 400);
+      }
+      const id = crypto.randomUUID();
+      await env.DB.prepare("INSERT INTO titles (id,title,description,media_type,access_tier,status) VALUES (?,?,?,?,?,'draft')")
+        .bind(id,title,description,mediaType,tier).run();
+      await audit("title.created","title",id,{title,media_type:mediaType,access_tier:tier});
+      return json({ ok: true, id }, 201);
+    }
+    const titleMatch = url.pathname.match(/^\/api\/admin\/titles\/([a-f0-9-]+)$/i);
+    if (titleMatch && request.method === "PATCH") {
+      const id = titleMatch[1];
+      const body = await request.json();
+      const current = await env.DB.prepare("SELECT id FROM titles WHERE id=?").bind(id).first();
+      if (!current) return json({ error: "Title not found." }, 404);
+      const fields = [];
+      const values = [];
+      if (body.title !== undefined) {
+        const value = String(body.title).trim();
+        if (!value || value.length > 180) return json({ error: "Invalid title." }, 400);
+        fields.push("title=?"); values.push(value);
+      }
+      if (body.description !== undefined) {
+        const value = String(body.description).trim();
+        if (value.length > 5000) return json({ error: "Description is too long." }, 400);
+        fields.push("description=?"); values.push(value);
+      }
+      if (body.access_tier !== undefined) {
+        if (!["free","premium"].includes(body.access_tier)) return json({ error: "Invalid access tier." }, 400);
+        fields.push("access_tier=?"); values.push(body.access_tier);
+      }
+      if (body.status !== undefined) {
+        if (!["draft","published","archived"].includes(body.status)) return json({ error: "Invalid publication status." }, 400);
+        fields.push("status=?"); values.push(body.status);
+        fields.push("published_at=?"); values.push(body.status === "published" ? new Date().toISOString() : null);
+      }
+      if (!fields.length) return json({ error: "No supported changes supplied." }, 400);
+      fields.push("updated_at=CURRENT_TIMESTAMP");
+      values.push(id);
+      await env.DB.prepare("UPDATE titles SET " + fields.join(",") + " WHERE id=?").bind(...values).run();
+      await audit("title.updated","title",id,body);
+      return json({ ok: true });
+    }
+    if (request.method === "GET" && url.pathname === "/api/admin/users") {
+      const result = await env.DB.prepare("SELECT id,email,display_name,role,status,created_at FROM users ORDER BY created_at DESC LIMIT 200").all();
+      return json({ users: result.results || [] });
+    }
+    if (request.method === "PATCH" && /^\/api\/admin\/users\/[a-f0-9-]+\/status$/i.test(url.pathname)) {
+      const id = url.pathname.split("/")[4];
+      if (id === admin.id) return json({ error: "You cannot change your own account status here." }, 400);
+      const body = await request.json();
+      if (!["active","suspended","pending"].includes(body.status)) return json({ error: "Invalid account status." }, 400);
+      const target = await env.DB.prepare("SELECT id FROM users WHERE id=?").bind(id).first();
+      if (!target) return json({ error: "User not found." }, 404);
+      await env.DB.prepare("UPDATE users SET status=?,updated_at=CURRENT_TIMESTAMP WHERE id=?").bind(body.status,id).run();
+      if (body.status !== "active") await env.DB.prepare("DELETE FROM sessions WHERE user_id=?").bind(id).run();
+      await audit("user.status_changed","user",id,{status:body.status});
+      return json({ ok: true });
+    }
+    return json({ error: "Not found." }, 404);
+  } catch {
+    return json({ error: "Administrator service is temporarily unavailable." }, 500);
+  }
+}
+
 export default {
   async fetch(request, env) {
     const url = new URL(request.url);
@@ -113,6 +209,7 @@ export default {
       try { return await handleAuth(request, env, url.pathname); }
       catch { return json({ error: "Authentication service is temporarily unavailable." }, 500); }
     }
+    if (url.pathname.startsWith("/api/admin/")) return adminRoute(request, env, url);
     if (url.pathname.startsWith("/api/account/")) {
       if (!env.DB) return json({ error: "Database is not configured." }, 503);
       const user = await currentUser(request, env);
