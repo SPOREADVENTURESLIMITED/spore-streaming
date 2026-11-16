@@ -107,11 +107,105 @@ async function handleAuth(request, env, path) {
 }
 
 
+
+function base32Encode(bytes) {
+  const alphabet = "ABCDEFGHIJKLMNOPQRSTUVWXYZ234567";
+  let bits = 0, value = 0, output = "";
+  for (const byte of bytes) {
+    value = (value << 8) | byte; bits += 8;
+    while (bits >= 5) { output += alphabet[(value >>> (bits - 5)) & 31]; bits -= 5; }
+  }
+  if (bits) output += alphabet[(value << (5 - bits)) & 31];
+  return output;
+}
+function base32Decode(text) {
+  const alphabet = "ABCDEFGHIJKLMNOPQRSTUVWXYZ234567";
+  let bits = 0, value = 0; const out = [];
+  for (const ch of text.replace(/=+$/,"").toUpperCase()) {
+    const n = alphabet.indexOf(ch); if (n < 0) throw new Error("Invalid base32");
+    value = (value << 5) | n; bits += 5;
+    if (bits >= 8) { out.push((value >>> (bits - 8)) & 255); bits -= 8; }
+  }
+  return new Uint8Array(out);
+}
+async function mfaAesKey(env) {
+  if (!env.MFA_ENCRYPTION_KEY || env.MFA_ENCRYPTION_KEY.length < 32) throw new Error("MFA_ENCRYPTION_KEY must be configured with at least 32 characters.");
+  const raw = await crypto.subtle.digest("SHA-256", encoder.encode(env.MFA_ENCRYPTION_KEY));
+  return crypto.subtle.importKey("raw",raw,{name:"AES-GCM"},false,["encrypt","decrypt"]);
+}
+async function encryptMfaSecret(secret, env) {
+  const iv=crypto.getRandomValues(new Uint8Array(12)), key=await mfaAesKey(env);
+  const encrypted=await crypto.subtle.encrypt({name:"AES-GCM",iv},key,encoder.encode(secret));
+  return base64url(iv)+"."+base64url(new Uint8Array(encrypted));
+}
+async function decryptMfaSecret(value, env) {
+  const [ivText,dataText]=value.split(".");
+  const key=await mfaAesKey(env);
+  const plain=await crypto.subtle.decrypt({name:"AES-GCM",iv:fromBase64url(ivText)},key,fromBase64url(dataText));
+  return new TextDecoder().decode(plain);
+}
+async function totp(secret, time=Date.now()) {
+  const counter=Math.floor(time/30000), msg=new Uint8Array(8);
+  let n=counter;
+  for(let i=7;i>=0;i--){msg[i]=n&255;n=Math.floor(n/256);}
+  const key=await crypto.subtle.importKey("raw",base32Decode(secret),{name:"HMAC",hash:"SHA-1"},false,["sign"]);
+  const mac=new Uint8Array(await crypto.subtle.sign("HMAC",key,msg));
+  const offset=mac[mac.length-1]&15;
+  const binary=((mac[offset]&127)<<24)|(mac[offset+1]<<16)|(mac[offset+2]<<8)|mac[offset+3];
+  return String(binary%1000000).padStart(6,"0");
+}
+async function verifyTotp(secret, code) {
+  if(!/^\d{6}$/.test(String(code||""))) return false;
+  for(const drift of [-30000,0,30000]) if(await totp(secret,Date.now()+drift)===String(code)) return true;
+  return false;
+}
+async function mfaEnabled(userId,env) {
+  const row=await env.DB.prepare("SELECT enabled FROM admin_mfa WHERE user_id=?").bind(userId).first();
+  return !!(row && row.enabled===1);
+}
+async function verifyRecoveryCode(userId,code,env) {
+  const normalized=String(code||"").replace(/[^A-Za-z0-9]/g,"").toUpperCase();
+  if(normalized.length!==16) return false;
+  const hash=await digest(normalized);
+  const row=await env.DB.prepare("SELECT id FROM admin_mfa_recovery WHERE user_id=? AND code_hash=? AND used_at IS NULL").bind(userId,hash).first();
+  if(!row) return false;
+  await env.DB.prepare("UPDATE admin_mfa_recovery SET used_at=CURRENT_TIMESTAMP WHERE id=?").bind(row.id).run();
+  return true;
+}
+async function adminMfaRoute(request,env,url,user) {
+  if(request.method==="GET" && url.pathname==="/api/admin/mfa/status")
+    return json({enabled:await mfaEnabled(user.id,env)});
+  if(request.method==="POST" && url.pathname==="/api/admin/mfa/setup") {
+    if(await mfaEnabled(user.id,env)) return json({error:"MFA is already enabled."},409);
+    const secret=base32Encode(crypto.getRandomValues(new Uint8Array(20)));
+    const encrypted=await encryptMfaSecret(secret,env);
+    await env.DB.prepare("INSERT INTO admin_mfa(user_id,secret_ciphertext,enabled) VALUES(?,?,0) ON CONFLICT(user_id) DO UPDATE SET secret_ciphertext=excluded.secret_ciphertext,enabled=0,created_at=CURRENT_TIMESTAMP").bind(user.id,encrypted).run();
+    const issuer="SPORE%20MAX";
+    const label=encodeURIComponent(user.email);
+    return json({secret,otpauth_uri:"otpauth://totp/"+issuer+":"+label+"?secret="+secret+"&issuer="+issuer+"&algorithm=SHA1&digits=6&period=30"});
+  }
+  if(request.method==="POST" && url.pathname==="/api/admin/mfa/enable") {
+    const body=await request.json();
+    const row=await env.DB.prepare("SELECT secret_ciphertext FROM admin_mfa WHERE user_id=? AND enabled=0").bind(user.id).first();
+    if(!row) return json({error:"Start MFA setup first."},400);
+    const secret=await decryptMfaSecret(row.secret_ciphertext,env);
+    if(!(await verifyTotp(secret,body.code))) return json({error:"The verification code is invalid."},400);
+    const codes=Array.from({length:8},()=>base32Encode(crypto.getRandomValues(new Uint8Array(10))).slice(0,16));
+    const statements=[env.DB.prepare("UPDATE admin_mfa SET enabled=1,enabled_at=CURRENT_TIMESTAMP WHERE user_id=?").bind(user.id)];
+    for(const code of codes) statements.push(env.DB.prepare("INSERT INTO admin_mfa_recovery(id,user_id,code_hash) VALUES(?,?,?)").bind(crypto.randomUUID(),user.id,await digest(code)));
+    await env.DB.batch(statements);
+    return json({enabled:true,recovery_codes:codes});
+  }
+  return json({error:"Not found."},404);
+}
+
 async function adminRoute(request, env, url) {
   if (!env.DB) return json({ error: "Database is not configured." }, 503);
   const admin = await currentUser(request, env);
   if (!admin) return json({ error: "Sign in required." }, 401);
   if (admin.role !== "admin") return json({ error: "Administrator access required." }, 403);
+  if (url.pathname.startsWith("/api/admin/mfa/")) return adminMfaRoute(request,env,url,admin);
+  if (!(await mfaEnabled(admin.id,env))) return json({ error: "Administrator MFA setup is required." }, 403);
   if (request.method !== "GET" && request.headers.get("Origin") !== url.origin) {
     return json({ error: "Invalid request origin." }, 403);
   }
