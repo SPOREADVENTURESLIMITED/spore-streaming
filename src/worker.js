@@ -68,6 +68,36 @@ async function handleAuth(request, env, path) {
     if (token) await env.DB.prepare("DELETE FROM sessions WHERE token_hash=?").bind(await digest(token)).run();
     return json({ ok: true }, 200, { "set-cookie": sessionCookie("", 0) });
   }
+  if (request.method === "POST" && path === "/api/auth/forgot-password") {
+    let body; try { body=await request.json(); } catch { return json({error:"Invalid request."},400); }
+    const email=String(body.email||"").trim().toLowerCase();
+    if(!/^[^\\s@]+@[^\\s@]+\\.[^\\s@]+$/.test(email) || email.length>254) return json({error:"If the account exists, reset instructions will be sent."});
+    const user=await env.DB.prepare("SELECT id,email FROM users WHERE email=? AND status='active'").bind(email).first();
+    if(user && env.RESEND_API_KEY && env.RESET_EMAIL_FROM && env.APP_ORIGIN) {
+      const token=base64url(crypto.getRandomValues(new Uint8Array(32)));
+      const tokenHash=await digest(token);
+      const expires=new Date(Date.now()+30*60*1000).toISOString();
+      await env.DB.prepare("INSERT INTO password_resets(id,user_id,token_hash,expires_at) VALUES(?,?,?,?)").bind(crypto.randomUUID(),user.id,tokenHash,expires).run();
+      const resetUrl=env.APP_ORIGIN.replace(/\\/$/,"")+"/?reset_token="+encodeURIComponent(token);
+      await fetch("https://api.resend.com/emails",{method:"POST",headers:{"Authorization":"Bearer "+env.RESEND_API_KEY,"Content-Type":"application/json"},body:JSON.stringify({from:env.RESET_EMAIL_FROM,to:[user.email],subject:"Reset your SPORE MAX password",html:"<p>We received a password reset request for your SPORE MAX account.</p><p><a href='"+resetUrl+"'>Reset password</a></p><p>This link expires in 30 minutes. If you did not request this, ignore this email.</p>"})});
+    }
+    return json({message:"If an active account matches that address, reset instructions will be sent."});
+  }
+  if (request.method === "POST" && path === "/api/auth/reset-password") {
+    let body; try { body=await request.json(); } catch { return json({error:"Invalid request."},400); }
+    const token=String(body.token||""), password=String(body.password||"");
+    if(token.length<32 || password.length<12 || password.length>128) return json({error:"Use a valid reset link and a password of at least 12 characters."},400);
+    const tokenHash=await digest(token);
+    const reset=await env.DB.prepare("SELECT id,user_id FROM password_resets WHERE token_hash=? AND used_at IS NULL AND julianday(expires_at)>julianday('now')").bind(tokenHash).first();
+    if(!reset) return json({error:"This password reset link is invalid or expired."},400);
+    const passwordHash=await hashPassword(password);
+    await env.DB.batch([
+      env.DB.prepare("UPDATE users SET password_hash=?,updated_at=CURRENT_TIMESTAMP WHERE id=?").bind(passwordHash,reset.user_id),
+      env.DB.prepare("UPDATE password_resets SET used_at=CURRENT_TIMESTAMP WHERE id=?").bind(reset.id),
+      env.DB.prepare("DELETE FROM sessions WHERE user_id=?").bind(reset.user_id)
+    ]);
+    return json({ok:true,message:"Password updated. Please sign in again."});
+  }
   if (request.method !== "POST" || !["/api/auth/register", "/api/auth/login"].includes(path)) {
     return json({ error: "Not found" }, 404);
   }
