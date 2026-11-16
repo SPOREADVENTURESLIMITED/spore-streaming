@@ -30,17 +30,28 @@ SPORE MAX is being built as an all-in-one streaming platform for movies, series,
 - Customer registration and login API using PBKDF2 password hashing
 - Server-side sessions stored in D1; session cookie is HttpOnly, Secure, and SameSite=Lax
 - Customer sign-in and registration interface
-- PWA manifest, service worker, and app icon
+- PWA manifest and service worker; standard Android PNG icon sizes and real-device installation verification remain outstanding
 
 ## Deployment requirements
 
-The app is not production-live yet. Before deployment:
+The Worker deployment pipeline is configured and a production deployment has succeeded. The following items remain before a complete public streaming launch:
 
-1. Create the Cloudflare D1 database and replace the placeholder database ID in `wrangler.toml`.
-2. Create the `spore-max-media` R2 bucket.
-3. Apply D1 migrations with Wrangler.
-4. Configure the Cloudflare Stream account and secure server-side credentials when playback integration is implemented.
-5. Set the production domain and verify HTTPS.
-6. Add rate limiting, account recovery, email verification, admin MFA, payment provider integration, and production security testing before public launch.
+1. Configure the Worker secret `MFA_ENCRYPTION_KEY` with a randomly generated value of at least 32 characters. Do not commit or share it. Until configured, administrator MFA setup cannot be completed.
+2. Configure `RESEND_API_KEY` and `RESET_EMAIL_FROM` to enable password-reset email delivery; verify sender-domain authentication and run an end-to-end recovery test.
+3. Provision the first authorized administrator directly in D1 using a securely generated password hash; never expose an admin-registration route or promote a public account.
+4. Create and verify the `spore-max-media` R2 bucket and implement authenticated media upload, poster delivery, and storage lifecycle controls.
+5. Integrate Cloudflare Stream for VOD encoding, signed playback, and live streaming. A catalogue record alone does not provide playable video.
+6. Integrate a supported payment provider and implement verified server-side webhooks before activating paid subscriptions.
+7. Implement rate limiting and email verification, then run controlled registration, login, password-reset, admin MFA, account, upload, playback, payment, and security tests.
+8. Verify Android and desktop PWA installation, offline shell behavior, and production HTTPS from real browsers.
 
 Never commit credentials, API tokens, or private keys. Publish only media for which SPORE MAX has the necessary distribution rights.
+
+
+## Deployment and verification
+
+- Production Worker: https://spore-max.spore-cybernetics.workers.dev
+- Health endpoint: https://spore-max.spore-cybernetics.workers.dev/api/health
+- GitHub Actions deployment workflow: https://github.com/SPOREADVENTURESLIMITED/spore-streaming/actions
+
+A green deployment confirms that the Worker bundle and D1 migrations deployed; it does not prove that account flows, email delivery, media playback, payments, or device installation have passed end-to-end tests.
