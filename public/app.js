@@ -91,6 +91,7 @@ authForm.addEventListener("submit", async event => {
     authForm.elements.password.value = "";
     dialog.close();
     await showDashboard();
+    if (data.user.role === "admin") await showAdmin();
   } catch (error) {
     authMessage.textContent = error.message;
   } finally {
@@ -216,6 +217,12 @@ async function loadAdminUsers() {
   }
 }
 document.querySelector("#refreshAdmin").addEventListener("click",()=>showAdmin().catch(()=>{}));
+document.querySelector("#adminLogout").addEventListener("click",async()=>{
+  await fetch("/api/auth/logout",{method:"POST"});
+  adminPanel.hidden=true;
+  dashboard.hidden=true;
+  accountButton.textContent="Sign in";
+});
 document.querySelector("#titleForm").addEventListener("submit",async event=>{
   event.preventDefault();
   const form=event.currentTarget;
