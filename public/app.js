@@ -74,6 +74,8 @@ authForm.addEventListener("submit", async event => {
   authSubmit.disabled = true;
   const form = new FormData(authForm);
   const payload = Object.fromEntries(form.entries());
+  if (payload.mfa_code) { if (/^\\d{6}$/.test(payload.mfa_code)) payload.totp_code = payload.mfa_code; else payload.recovery_code = payload.mfa_code; }
+  delete payload.mfa_code;
   try {
     const response = await fetch(registerMode ? "/api/auth/register" : "/api/auth/login", {
       method: "POST",
@@ -81,7 +83,7 @@ authForm.addEventListener("submit", async event => {
       body: JSON.stringify(payload)
     });
     const data = await response.json();
-    if (!response.ok) throw new Error(data.error || "Unable to sign in.");
+    if (!response.ok) { if (data.mfa_required) { document.querySelector("#mfaCodeField").hidden = false; authMessage.textContent = "Enter your authenticator code or an unused recovery code, then submit again."; } throw new Error(data.error || "Unable to sign in."); }
     accountButton.textContent = data.user.display_name;
     authTitle.textContent = "Welcome to SPORE MAX";
     authMessage.textContent = "You are signed in as " + data.user.email;
@@ -182,6 +184,7 @@ async function showAdmin() {
     titles.append(row);
   }
   await loadAdminUsers();
+  await loadMfaStatus();
   adminPanel.hidden = false;
 }
 async function updateTitle(id, changes) {
@@ -216,6 +219,31 @@ async function loadAdminUsers() {
     target.append(row);
   }
 }
+
+async function loadMfaStatus() {
+  const response=await fetch("/api/admin/mfa/status");
+  if(!response.ok) return;
+  const data=await response.json();
+  document.querySelector("#mfaStatus").textContent=data.enabled ? "MFA is enabled for this administrator." : "MFA is not enabled. Complete setup before using admin tools.";
+  document.querySelector("#mfaSetup").hidden=data.enabled;
+}
+document.querySelector("#mfaSetup").addEventListener("click",async()=>{
+  const response=await fetch("/api/admin/mfa/setup",{method:"POST"});
+  const data=await response.json();
+  if(!response.ok){document.querySelector("#mfaStatus").textContent=data.error||"MFA setup failed.";return;}
+  document.querySelector("#mfaSecret").textContent=data.secret;
+  document.querySelector("#mfaSetupDetails").hidden=false;
+});
+document.querySelector("#mfaEnable").addEventListener("click",async()=>{
+  const code=document.querySelector("#mfaVerifyCode").value.trim();
+  const response=await fetch("/api/admin/mfa/enable",{method:"POST",headers:{"content-type":"application/json"},body:JSON.stringify({code})});
+  const data=await response.json();
+  if(!response.ok){document.querySelector("#mfaStatus").textContent=data.error||"MFA verification failed.";return;}
+  document.querySelector("#mfaRecoveryCodes").textContent="Save these recovery codes securely. Each can be used once:\n"+data.recovery_codes.join("\n");
+  document.querySelector("#mfaRecoveryCodes").hidden=false;
+  await loadMfaStatus();
+});
+
 document.querySelector("#refreshAdmin").addEventListener("click",()=>showAdmin().catch(()=>{}));
 document.querySelector("#adminLogout").addEventListener("click",async()=>{
   await fetch("/api/auth/logout",{method:"POST"});
