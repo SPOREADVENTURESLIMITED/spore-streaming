@@ -74,7 +74,7 @@ authForm.addEventListener("submit", async event => {
   authSubmit.disabled = true;
   const form = new FormData(authForm);
   const payload = Object.fromEntries(form.entries());
-  if (payload.mfa_code) { if (/^\\d{6}$/.test(payload.mfa_code)) payload.totp_code = payload.mfa_code; else payload.recovery_code = payload.mfa_code; }
+  if (payload.mfa_code) { if (/^\d{6}$/.test(payload.mfa_code)) payload.totp_code = payload.mfa_code; else payload.recovery_code = payload.mfa_code; }
   delete payload.mfa_code;
   try {
     const response = await fetch(registerMode ? "/api/auth/register" : "/api/auth/login", {
