@@ -36,7 +36,7 @@ SPORE MAX is being built as an all-in-one streaming platform for movies, series,
 
 The Worker deployment pipeline is configured and a production deployment has succeeded. The following items remain before a complete public streaming launch:
 
-1. Configure the Worker secret `MFA_ENCRYPTION_KEY` with a randomly generated value of at least 32 characters. Do not commit or share it. Until configured, administrator MFA setup cannot be completed.
+1. `MFA_ENCRYPTION_KEY` has been configured by the operator. Complete first-administrator provisioning and test authenticator enrollment, login verification, and recovery codes.
 2. Configure `RESEND_API_KEY` and `RESET_EMAIL_FROM` to enable password-reset email delivery; verify sender-domain authentication and run an end-to-end recovery test.
 3. Provision the first authorized administrator directly in D1 using a securely generated password hash; never expose an admin-registration route or promote a public account.
 4. Create and verify the `spore-max-media` R2 bucket and implement authenticated media upload, poster delivery, and storage lifecycle controls.
