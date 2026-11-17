@@ -151,9 +151,26 @@ function adminNode(tag, text) {
 async function showAdmin() {
   const response = await fetch("/api/admin/dashboard");
   if (!response.ok) {
+    if (response.status === 403) {
+      const mfaResponse = await fetch("/api/admin/mfa/status");
+      if (mfaResponse.ok) {
+        const mfa = await mfaResponse.json();
+        if (!mfa.enabled) {
+          document.querySelector("#adminStats").hidden = true;
+          adminPanel.querySelector(".admin-columns").hidden = true;
+          document.querySelector("#adminUsers").parentElement.hidden = true;
+          adminPanel.hidden = false;
+          await loadMfaStatus();
+          return;
+        }
+      }
+    }
     adminPanel.hidden = true;
     throw new Error(response.status === 403 ? "Administrator access required." : "Admin dashboard unavailable.");
   }
+  document.querySelector("#adminStats").hidden = false;
+  adminPanel.querySelector(".admin-columns").hidden = false;
+  document.querySelector("#adminUsers").parentElement.hidden = false;
   const data = await response.json();
   const stats = document.querySelector("#adminStats");
   stats.replaceChildren();
